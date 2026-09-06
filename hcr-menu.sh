@@ -4,18 +4,29 @@ set -euo pipefail
 SERVICE="hcr-server"
 UNIT="/etc/systemd/system/${SERVICE}.service"
 
+# ─── Colores ─────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+RESET='\033[0m'
+# ─────────────────────────────────────────────────────────
+
 clear_screen() {
     clear 2>/dev/null || true
 }
 
 pause() {
     echo
-    read -r -p "Presiona Enter para continuar..."
+    read -r -p "$(echo -e "${YELLOW}Presiona Enter para continuar...${RESET}")"
 }
 
 die() {
     echo
-    echo "❌ Error: $*"
+    echo -e "${RED}❌ Error: $*${RESET}"
     exit 1
 }
 
@@ -100,7 +111,7 @@ backup() {
 
     cp -a "$UNIT" "${UNIT}.backup.${stamp}"
 
-    echo "✓ Backup: ${UNIT}.backup.${stamp}"
+    echo -e "${GREEN}✓ Backup: ${UNIT}.backup.${stamp}${RESET}"
 }
 
 restore_backup() {
@@ -251,19 +262,19 @@ change_option() {
     local backup_file
 
     echo
-    echo "Valor actual: $current"
+    echo -e "${CYAN}Valor actual: ${BOLD}${current}${RESET}"
 
-    read -r -p "$title: " value
+    read -r -p "$(echo -e "${YELLOW}${title}: ${RESET}")" value
     [ -n "$value" ] || return
 
     if ! [[ "$value" =~ ^[0-9]+$ ]]; then
-        echo "❌ Debe ser un número."
+        echo -e "${RED}❌ Debe ser un número.${RESET}"
         pause
         return
     fi
 
     if [ "$value" -lt "$min" ] || [ "$value" -gt "$max" ]; then
-        echo "❌ Valor fuera de rango."
+        echo -e "${RED}❌ Valor fuera de rango.${RESET}"
         pause
         return
     fi
@@ -274,9 +285,9 @@ change_option() {
     replace_option "$option" "$value"
 
     if restart_hcr; then
-        echo "✓ Cambio aplicado."
+        echo -e "${GREEN}✓ Cambio aplicado.${RESET}"
     else
-        echo "❌ HCR no pudo iniciar. Restaurando..."
+        echo -e "${RED}❌ HCR no pudo iniciar. Restaurando...${RESET}"
         restore_backup "$backup_file"
     fi
 
@@ -289,13 +300,13 @@ change_timeout() {
     current="$(get_poll)"
 
     echo
-    echo "Valor actual: $current"
-    read -r -p "Nuevo timeout (ej. 20s, 25s, 30s): " value
+    echo -e "${CYAN}Valor actual: ${BOLD}${current}${RESET}"
+    read -r -p "$(echo -e "${YELLOW}Nuevo timeout (ej. 20s, 25s, 30s): ${RESET}")" value
 
     [ -n "$value" ] || return
 
     [[ "$value" =~ ^[0-9]+(ms|s|m|h)$ ]] || {
-        echo "❌ Formato inválido."
+        echo -e "${RED}❌ Formato inválido.${RESET}"
         pause
         return
     }
@@ -306,9 +317,9 @@ change_timeout() {
     replace_option '--download-poll-timeout' "$value"
 
     if restart_hcr; then
-        echo "✓ Cambio aplicado."
+        echo -e "${GREEN}✓ Cambio aplicado.${RESET}"
     else
-        echo "❌ HCR no pudo iniciar. Restaurando..."
+        echo -e "${RED}❌ HCR no pudo iniciar. Restaurando...${RESET}"
         restore_backup "$backup_file"
     fi
 
@@ -321,15 +332,15 @@ change_port() {
     current="$(get_port)"
 
     echo
-    echo "Puerto actual: $current"
-    read -r -p "Nuevo puerto HCR: " value
+    echo -e "${CYAN}Puerto actual: ${BOLD}${current}${RESET}"
+    read -r -p "$(echo -e "${YELLOW}Nuevo puerto HCR: ${RESET}")" value
 
     [ -n "$value" ] || return
 
     if ! [[ "$value" =~ ^[0-9]+$ ]] ||
        [ "$value" -lt 1 ] ||
        [ "$value" -gt 65535 ]; then
-        echo "❌ Puerto inválido."
+        echo -e "${RED}❌ Puerto inválido.${RESET}"
         pause
         return
     fi
@@ -340,9 +351,9 @@ change_port() {
     replace_port "$value"
 
     if restart_hcr; then
-        echo "✓ Puerto cambiado."
+        echo -e "${GREEN}✓ Puerto cambiado.${RESET}"
     else
-        echo "❌ HCR no pudo iniciar. Restaurando..."
+        echo -e "${RED}❌ HCR no pudo iniciar. Restaurando...${RESET}"
         restore_backup "$backup_file"
     fi
 
@@ -355,15 +366,15 @@ change_target() {
     current="$(get_target)"
 
     echo
-    echo "Target actual: $current"
-    read -r -p "Nuevo puerto SSH/target: " value
+    echo -e "${CYAN}Target actual: ${BOLD}${current}${RESET}"
+    read -r -p "$(echo -e "${YELLOW}Nuevo puerto SSH/target: ${RESET}")" value
 
     [ -n "$value" ] || return
 
     if ! [[ "$value" =~ ^[0-9]+$ ]] ||
        [ "$value" -lt 1 ] ||
        [ "$value" -gt 65535 ]; then
-        echo "❌ Puerto inválido."
+        echo -e "${RED}❌ Puerto inválido.${RESET}"
         pause
         return
     fi
@@ -374,9 +385,9 @@ change_target() {
     replace_target "$value"
 
     if restart_hcr; then
-        echo "✓ Target cambiado."
+        echo -e "${GREEN}✓ Target cambiado.${RESET}"
     else
-        echo "❌ HCR no pudo iniciar. Restaurando..."
+        echo -e "${RED}❌ HCR no pudo iniciar. Restaurando...${RESET}"
         restore_backup "$backup_file"
     fi
 
@@ -389,15 +400,15 @@ change_nofile() {
     current="$(get_nofile)"
 
     echo
-    echo "LimitNOFILE actual: $current"
-    read -r -p "Nuevo LimitNOFILE: " value
+    echo -e "${CYAN}LimitNOFILE actual: ${BOLD}${current}${RESET}"
+    read -r -p "$(echo -e "${YELLOW}Nuevo LimitNOFILE: ${RESET}")" value
 
     [ -n "$value" ] || return
 
     if ! [[ "$value" =~ ^[0-9]+$ ]] ||
        [ "$value" -lt 1024 ] ||
        [ "$value" -gt 1048576 ]; then
-        echo "❌ Valor inválido."
+        echo -e "${RED}❌ Valor inválido.${RESET}"
         pause
         return
     fi
@@ -408,9 +419,9 @@ change_nofile() {
     replace_nofile "$value"
 
     if restart_hcr; then
-        echo "✓ LimitNOFILE cambiado."
+        echo -e "${GREEN}✓ LimitNOFILE cambiado.${RESET}"
     else
-        echo "❌ HCR no pudo iniciar. Restaurando..."
+        echo -e "${RED}❌ HCR no pudo iniciar. Restaurando...${RESET}"
         restore_backup "$backup_file"
     fi
 
@@ -420,32 +431,32 @@ change_nofile() {
 status_menu() {
     clear_screen
 
-    echo "════════════════════════════════════════════"
-    echo "             HCR - CONFIGURACIÓN"
-    echo "════════════════════════════════════════════"
+    echo -e "${YELLOW}════════════════════════════════════════════${RESET}"
+    echo -e "${CYAN}${BOLD}             HCR - CONFIGURACIÓN${RESET}"
+    echo -e "${YELLOW}════════════════════════════════════════════${RESET}"
     echo
 
     if systemctl is-active --quiet "$SERVICE"; then
-        echo "Servicio:                 ACTIVO ✓"
+        echo -e "Servicio:                 ${GREEN}ACTIVO ✓${RESET}"
     else
-        echo "Servicio:                 INACTIVO ✗"
+        echo -e "Servicio:                 ${RED}INACTIVO ✗${RESET}"
     fi
 
     echo
-    echo "Puerto HCR:               $(get_port)"
-    echo "Puerto SSH/target:        $(get_target)"
-    echo "Transport:                $(get_transport)"
+    echo -e "Puerto HCR:               ${CYAN}$(get_port)${RESET}"
+    echo -e "Puerto SSH/target:        ${CYAN}$(get_target)${RESET}"
+    echo -e "Transport:                ${CYAN}$(get_transport)${RESET}"
     echo
-    echo "Max Connections:          $(get_connections)"
-    echo "Max Sessions:             $(get_sessions)"
-    echo "Max Sessions/IP:          $(get_sessions_ip)"
-    echo "Max Download Frame:       $(get_frame)"
-    echo "Download Poll Timeout:    $(get_poll)"
-    echo "Session Stats Interval:   $(get_stats)"
-    echo "LimitNOFILE:              $(get_nofile)"
+    echo -e "Max Connections:          ${CYAN}$(get_connections)${RESET}"
+    echo -e "Max Sessions:             ${CYAN}$(get_sessions)${RESET}"
+    echo -e "Max Sessions/IP:          ${CYAN}$(get_sessions_ip)${RESET}"
+    echo -e "Max Download Frame:       ${CYAN}$(get_frame)${RESET}"
+    echo -e "Download Poll Timeout:    ${CYAN}$(get_poll)${RESET}"
+    echo -e "Session Stats Interval:   ${CYAN}$(get_stats)${RESET}"
+    echo -e "LimitNOFILE:              ${CYAN}$(get_nofile)${RESET}"
 
     echo
-    echo "════════════════════════════════════════════"
+    echo -e "${YELLOW}════════════════════════════════════════════${RESET}"
 
     pause
 }
@@ -453,7 +464,7 @@ status_menu() {
 logs_menu() {
     clear_screen
 
-    echo "Últimas 50 líneas de HCR:"
+    echo -e "${CYAN}${BOLD}Últimas 50 líneas de HCR:${RESET}"
     echo
 
     journalctl -u "$SERVICE" -n 50 --no-pager || true
@@ -465,34 +476,34 @@ main_menu() {
     while true; do
         clear_screen
 
-        echo "════════════════════════════════════════════"
-        echo "          NETSYS MOD - HCR CUSTOM"
-        echo "════════════════════════════════════════════"
+        echo -e "${YELLOW}════════════════════════════════════════════${RESET}"
+        echo -e "${CYAN}${BOLD}          NETSYS MOD - HCR CUSTOM${RESET}"
+        echo -e "${YELLOW}════════════════════════════════════════════${RESET}"
         echo
-        echo " [1] Puerto HCR:              $(get_port)"
-        echo " [2] Puerto SSH / Target:     $(get_target)"
-        echo " [3] Transport:               $(get_transport)"
+        echo -e " ${GREEN}[1]${RESET} Puerto HCR:              ${CYAN}$(get_port)${RESET}"
+        echo -e " ${GREEN}[2]${RESET} Puerto SSH / Target:     ${CYAN}$(get_target)${RESET}"
+        echo -e " ${GREEN}[3]${RESET} Transport:               ${CYAN}$(get_transport)${RESET}"
         echo
-        echo " [4] Max Download Frame:      $(get_frame)"
-        echo " [5] Download Poll Timeout:   $(get_poll)"
-        echo " [6] Max Connections:          $(get_connections)"
-        echo " [7] Max Sessions:             $(get_sessions)"
-        echo " [8] Max Sessions Per IP:      $(get_sessions_ip)"
-        echo " [9] Session Stats Interval:   $(get_stats)"
+        echo -e " ${GREEN}[4]${RESET} Max Download Frame:      ${CYAN}$(get_frame)${RESET}"
+        echo -e " ${GREEN}[5]${RESET} Download Poll Timeout:   ${CYAN}$(get_poll)${RESET}"
+        echo -e " ${GREEN}[6]${RESET} Max Connections:          ${CYAN}$(get_connections)${RESET}"
+        echo -e " ${GREEN}[7]${RESET} Max Sessions:             ${CYAN}$(get_sessions)${RESET}"
+        echo -e " ${GREEN}[8]${RESET} Max Sessions Per IP:      ${CYAN}$(get_sessions_ip)${RESET}"
+        echo -e " ${GREEN}[9]${RESET} Session Stats Interval:   ${CYAN}$(get_stats)${RESET}"
         echo
-        echo " [10] Limit NOFILE:             $(get_nofile)"
-        echo " [11] Estado"
-        echo " [12] Ver ExecStart"
-        echo " [13] Ver logs"
-        echo " [14] Reiniciar HCR"
-        echo " [15] Iniciar / Detener HCR"
-        echo " [16] Desinstalar HCR"
+        echo -e " ${GREEN}[10]${RESET} Limit NOFILE:             ${CYAN}$(get_nofile)${RESET}"
+        echo -e " ${GREEN}[11]${RESET} Estado"
+        echo -e " ${GREEN}[12]${RESET} Ver ExecStart"
+        echo -e " ${GREEN}[13]${RESET} Ver logs"
+        echo -e " ${GREEN}[14]${RESET} Reiniciar HCR"
+        echo -e " ${GREEN}[15]${RESET} Iniciar / Detener HCR"
+        echo -e " ${GREEN}[16]${RESET} Desinstalar HCR"
         echo
-        echo " [0] Salir"
+        echo -e " ${GREEN}[0]${RESET} Salir"
         echo
-        echo "════════════════════════════════════════════"
+        echo -e "${YELLOW}════════════════════════════════════════════${RESET}"
 
-        read -r -p "Ingresa una Opción: " option
+        read -r -p "$(echo -e "${YELLOW}Ingresa una Opción: ${RESET}")" option
 
         case "$option" in
             1)
@@ -503,11 +514,11 @@ main_menu() {
                 ;;
             3)
                 echo
-                echo "Transport se controla desde install.sh:"
-                echo "tls / plain / auto"
+                echo -e "${CYAN}Transport se controla desde install.sh:${RESET}"
+                echo -e "${CYAN}tls / plain / auto${RESET}"
                 echo
-                echo "Para no romper certificados, esta opción no modifica"
-                echo "el servicio automáticamente."
+                echo -e "${YELLOW}Para no romper certificados, esta opción no modifica${RESET}"
+                echo -e "${YELLOW}el servicio automáticamente.${RESET}"
                 pause
                 ;;
             4)
@@ -561,7 +572,7 @@ main_menu() {
                 ;;
             12)
                 clear_screen
-                echo "ExecStart actual:"
+                echo -e "${CYAN}${BOLD}ExecStart actual:${RESET}"
                 echo
                 execstart
                 pause
@@ -572,55 +583,55 @@ main_menu() {
             14)
                 if restart_hcr; then
                     echo
-                    echo "✓ HCR reiniciado correctamente."
+                    echo -e "${GREEN}✓ HCR reiniciado correctamente.${RESET}"
                 else
                     echo
-                    echo "❌ HCR no pudo reiniciar."
+                    echo -e "${RED}❌ HCR no pudo reiniciar.${RESET}"
                 fi
                 pause
                 ;;
             15)
                 if systemctl is-active --quiet "$SERVICE"; then
                     systemctl stop "$SERVICE"
-                    echo "✓ HCR detenido."
+                    echo -e "${GREEN}✓ HCR detenido.${RESET}"
                 else
                     systemctl start "$SERVICE"
 
                     if systemctl is-active --quiet "$SERVICE"; then
-                        echo "✓ HCR iniciado."
+                        echo -e "${GREEN}✓ HCR iniciado.${RESET}"
                     else
-                        echo "❌ HCR no pudo iniciar."
+                        echo -e "${RED}❌ HCR no pudo iniciar.${RESET}"
                     fi
                 fi
                 pause
                 ;;
             16)
                 clear_screen
-                echo "Esto detendrá y deshabilitará HCR."
-                echo "El repositorio no será eliminado."
+                echo -e "${RED}${BOLD}Esto detendrá y deshabilitará HCR.${RESET}"
+                echo -e "${YELLOW}El repositorio no será eliminado.${RESET}"
                 echo
-                read -r -p "Escribe SI para confirmar: " answer
+                read -r -p "$(echo -e "${YELLOW}Escribe SI para confirmar: ${RESET}")" answer
 
                 if [ "$answer" = "SI" ]; then
                     systemctl disable --now "$SERVICE" 2>/dev/null || true
                     rm -f "$UNIT"
                     systemctl daemon-reload
                     systemctl reset-failed "$SERVICE" 2>/dev/null || true
-                    echo "✓ HCR desinstalado."
+                    echo -e "${GREEN}✓ HCR desinstalado.${RESET}"
                 else
-                    echo "Cancelado."
+                    echo -e "${YELLOW}Cancelado.${RESET}"
                 fi
 
                 pause
                 ;;
             0)
                 echo
-                echo "👋 Saliendo..."
+                echo -e "${CYAN}👋 Saliendo...${RESET}"
                 exit 0
                 ;;
             *)
                 echo
-                echo "❌ Opción inválida."
+                echo -e "${RED}❌ Opción inválida.${RESET}"
                 sleep 1
                 ;;
         esac
