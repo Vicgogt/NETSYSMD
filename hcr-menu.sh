@@ -4,12 +4,6 @@ set -euo pipefail
 SERVICE="hcr-server"
 UNIT="/etc/systemd/system/${SERVICE}.service"
 
-# ============================================================
-# HCR CUSTOM MENU NETSYSMOOD
-# Lee la configuración REAL del servicio.
-# No impone 264/29s al iniciar.
-# ============================================================
-
 clear_screen() {
     clear 2>/dev/null || true
 }
@@ -19,152 +13,113 @@ pause() {
     read -r -p "Presiona Enter para continuar..."
 }
 
-error() {
+die() {
     echo
     echo "❌ Error: $*"
-    pause
+    exit 1
 }
 
 require_root() {
-    if [ "$(id -u)" -ne 0 ]; then
-        echo "❌ Debes ejecutar este menú como root."
-        exit 1
-    fi
+    [ "$(id -u)" -eq 0 ] || die "Ejecuta este menú como root."
 }
 
-check_service_file() {
-    if [ ! -f "$UNIT" ]; then
-        echo
-        echo "❌ No se encontró:"
-        echo "$UNIT"
-        echo
-        echo "Instala primero HCR con install.sh."
-        exit 1
-    fi
+require_service() {
+    [ -f "$UNIT" ] || die "No existe $UNIT. Instala primero HCR con install.sh."
 }
 
-get_execstart() {
+execstart() {
     systemctl cat "$SERVICE" 2>/dev/null |
-        grep '^ExecStart=' |
-        tail -n 1 || true
+        sed -n '/^ExecStart=/p' |
+        tail -n 1
 }
 
-get_value() {
+get_option() {
     local option="$1"
     local default="$2"
-    local line
-    local value
+    local line value
 
-    line="$(get_execstart)"
+    line="$(execstart)"
 
-    value="$(printf '%s\n' "$line" |
-        sed -nE "s/.*${option}[[:space:]]+([^[:space:]]+).*/\1/p")"
+    value="$(
+        printf '%s\n' "$line" |
+        sed -nE "s/.*${option}[[:space:]]+([^[:space:]]+).*/\1/p"
+    )"
 
-    if [ -n "$value" ]; then
-        echo "$value"
-    else
-        echo "$default"
-    fi
+    printf '%s\n' "${value:-$default}"
 }
 
 get_port() {
     local value
-
-    value="$(get_execstart |
-        sed -nE 's/.*--listen[[:space:]]+:([0-9]+).*/\1/p')"
-
-    echo "${value:-8080}"
+    value="$(execstart | sed -nE 's/.*--listen[[:space:]]+:([0-9]+).*/\1/p')"
+    printf '%s\n' "${value:-8080}"
 }
 
-get_target_port() {
+get_target() {
     local value
-
-    value="$(get_execstart |
-        sed -nE 's/.*--target[[:space:]]+127\.0\.0\.1:([0-9]+).*/\1/p')"
-
-    echo "${value:-22}"
+    value="$(execstart | sed -nE 's/.*--target[[:space:]]+127\.0\.0\.1:([0-9]+).*/\1/p')"
+    printf '%s\n' "${value:-22}"
 }
 
 get_transport() {
-    local value
-
-    value="$(get_value '--transport' 'plain')"
-
-    echo "$value"
+    get_option '--transport' 'auto'
 }
 
 get_frame() {
-    get_value '--max-download-frame' '1032'
+    get_option '--max-download-frame' '1032'
 }
 
-get_poll_timeout() {
-    get_value '--download-poll-timeout' '25s'
+get_poll() {
+    get_option '--download-poll-timeout' '25s'
 }
 
-get_max_connections() {
-    get_value '--max-connections' '2048'
+get_connections() {
+    get_option '--max-connections' '2048'
 }
 
-get_max_sessions() {
-    get_value '--max-sessions' '64'
+get_sessions() {
+    get_option '--max-sessions' '64'
 }
 
-get_max_sessions_ip() {
-    get_value '--max-sessions-per-ip' '32'
+get_sessions_ip() {
+    get_option '--max-sessions-per-ip' '32'
+}
+
+get_stats() {
+    get_option '--session-stats-interval' '0'
 }
 
 get_nofile() {
     local value
-
-    value="$(systemctl show "$SERVICE" \
-        --property=LimitNOFILE \
-        --value 2>/dev/null || true)"
-
-    echo "${value:-8192}"
+    value="$(systemctl show "$SERVICE" --property=LimitNOFILE --value 2>/dev/null || true)"
+    printf '%s\n' "${value:-8192}"
 }
 
-backup_unit() {
-    local date
+backup() {
+    local stamp
+    stamp="$(date '+%Y%m%d-%H%M%S')"
 
-    date="$(date '+%Y%m%d-%H%M%S')"
+    cp -a "$UNIT" "${UNIT}.backup.${stamp}"
 
-    cp -a "$UNIT" "${UNIT}.backup.${date}"
-
-    echo
-    echo "✓ Copia de seguridad creada:"
-    echo "${UNIT}.backup.${date}"
+    echo "✓ Backup: ${UNIT}.backup.${stamp}"
 }
 
-restart_service() {
-    echo
-    echo "Aplicando configuración..."
+restore_backup() {
+    local backup_file="$1"
 
-    if ! systemd-analyze verify "$UNIT"; then
-        echo
-        echo "❌ systemd rechazó la configuración."
-        return 1
-    fi
+    cp -a "$backup_file" "$UNIT"
+    systemctl daemon-reload
+    systemctl restart "$SERVICE" || true
+}
+
+restart_hcr() {
+    systemd-analyze verify "$UNIT" || return 1
 
     systemctl daemon-reload
-
-    if ! systemctl restart "$SERVICE"; then
-        echo
-        echo "❌ HCR no pudo iniciar."
-        systemctl status "$SERVICE" --no-pager --full || true
-        return 1
-    fi
+    systemctl restart "$SERVICE"
 
     sleep 1
 
-    if ! systemctl is-active --quiet "$SERVICE"; then
-        echo
-        echo "❌ HCR no quedó activo."
-        systemctl status "$SERVICE" --no-pager --full || true
-        return 1
-    fi
-
-    echo
-    echo "✓ Configuración aplicada correctamente."
+    systemctl is-active --quiet "$SERVICE"
 }
 
 replace_option() {
@@ -175,9 +130,7 @@ replace_option() {
 import sys
 import re
 
-path = sys.argv[1]
-option = sys.argv[2]
-value = sys.argv[3]
+path, option, value = sys.argv[1:4]
 
 with open(path, "r", encoding="utf-8") as f:
     data = f.read()
@@ -190,18 +143,13 @@ if re.search(pattern, data):
 else:
     lines = data.splitlines()
 
-    found = False
-
     for i, line in enumerate(lines):
         if line.startswith("ExecStart="):
             lines[i] = line + " " + replacement
-            found = True
+            data = "\n".join(lines) + "\n"
             break
-
-    if not found:
+    else:
         raise SystemExit("No se encontró ExecStart.")
-
-    data = "\n".join(lines) + "\n"
 
 with open(path, "w", encoding="utf-8") as f:
     f.write(data)
@@ -215,16 +163,13 @@ replace_port() {
 import sys
 import re
 
-path = sys.argv[1]
-value = sys.argv[2]
+path, value = sys.argv[1:3]
 
 with open(path, "r", encoding="utf-8") as f:
     data = f.read()
 
-pattern = r'(--listen\s+):[0-9]+'
-
 data, count = re.subn(
-    pattern,
+    r'(--listen\s+):[0-9]+',
     r'\1:' + value,
     data,
     count=1
@@ -238,23 +183,20 @@ with open(path, "w", encoding="utf-8") as f:
 PY
 }
 
-replace_target_port() {
+replace_target() {
     local value="$1"
 
     python3 - "$UNIT" "$value" <<'PY'
 import sys
 import re
 
-path = sys.argv[1]
-value = sys.argv[2]
+path, value = sys.argv[1:3]
 
 with open(path, "r", encoding="utf-8") as f:
     data = f.read()
 
-pattern = r'(--target\s+127\.0\.0\.1:)[0-9]+'
-
 data, count = re.subn(
-    pattern,
+    r'(--target\s+127\.0\.0\.1:)[0-9]+',
     r'\1' + value,
     data,
     count=1
@@ -275,8 +217,7 @@ replace_nofile() {
 import sys
 import re
 
-path = sys.argv[1]
-value = sys.argv[2]
+path, value = sys.argv[1:3]
 
 with open(path, "r", encoding="utf-8") as f:
     data = f.read()
@@ -300,19 +241,19 @@ with open(path, "w", encoding="utf-8") as f:
 PY
 }
 
-change_number() {
+change_option() {
     local title="$1"
     local option="$2"
     local current="$3"
     local min="$4"
     local max="$5"
-
     local value
+    local backup_file
 
     echo
     echo "Valor actual: $current"
-    read -r -p "$title: " value
 
+    read -r -p "$title: " value
     [ -n "$value" ] || return
 
     if ! [[ "$value" =~ ^[0-9]+$ ]]; then
@@ -327,64 +268,61 @@ change_number() {
         return
     fi
 
-    backup_unit
+    backup
+    backup_file="$(ls -t "${UNIT}.backup."* 2>/dev/null | head -n 1)"
 
     replace_option "$option" "$value"
 
-    if ! restart_service; then
-        echo
-        echo "⚠ Restaurando copia de seguridad..."
-
-        local backup
-        backup="$(ls -t "${UNIT}.backup."* 2>/dev/null | head -n 1 || true)"
-
-        if [ -n "$backup" ]; then
-            cp -a "$backup" "$UNIT"
-            systemctl daemon-reload
-            systemctl restart "$SERVICE" || true
-        fi
+    if restart_hcr; then
+        echo "✓ Cambio aplicado."
+    else
+        echo "❌ HCR no pudo iniciar. Restaurando..."
+        restore_backup "$backup_file"
     fi
 
     pause
 }
 
 change_timeout() {
-    local current
-    local value
+    local current value backup_file
 
-    current="$(get_poll_timeout)"
+    current="$(get_poll)"
 
     echo
     echo "Valor actual: $current"
-    read -r -p "Nuevo timeout (ej. 25s, 28s, 30s): " value
+    read -r -p "Nuevo timeout (ej. 20s, 25s, 30s): " value
 
     [ -n "$value" ] || return
 
-    if ! [[ "$value" =~ ^[0-9]+(ms|s|m|h)$ ]]; then
+    [[ "$value" =~ ^[0-9]+(ms|s|m|h)$ ]] || {
         echo "❌ Formato inválido."
-        echo "Ejemplos: 25s  28s  30s"
         pause
         return
-    fi
+    }
 
-    backup_unit
+    backup
+    backup_file="$(ls -t "${UNIT}.backup."* 2>/dev/null | head -n 1)"
 
     replace_option '--download-poll-timeout' "$value"
 
-    restart_service || true
+    if restart_hcr; then
+        echo "✓ Cambio aplicado."
+    else
+        echo "❌ HCR no pudo iniciar. Restaurando..."
+        restore_backup "$backup_file"
+    fi
 
     pause
 }
 
-change_port_menu() {
-    local current
-    local value
+change_port() {
+    local current value backup_file
 
     current="$(get_port)"
 
     echo
-    echo "Puerto HCR actual: $current"
-    read -r -p "Nuevo puerto: " value
+    echo "Puerto actual: $current"
+    read -r -p "Nuevo puerto HCR: " value
 
     [ -n "$value" ] || return
 
@@ -396,23 +334,28 @@ change_port_menu() {
         return
     fi
 
-    backup_unit
+    backup
+    backup_file="$(ls -t "${UNIT}.backup."* 2>/dev/null | head -n 1)"
 
     replace_port "$value"
 
-    restart_service || true
+    if restart_hcr; then
+        echo "✓ Puerto cambiado."
+    else
+        echo "❌ HCR no pudo iniciar. Restaurando..."
+        restore_backup "$backup_file"
+    fi
 
     pause
 }
 
-change_target_port_menu() {
-    local current
-    local value
+change_target() {
+    local current value backup_file
 
-    current="$(get_target_port)"
+    current="$(get_target)"
 
     echo
-    echo "Puerto target actual: $current"
+    echo "Target actual: $current"
     read -r -p "Nuevo puerto SSH/target: " value
 
     [ -n "$value" ] || return
@@ -425,18 +368,23 @@ change_target_port_menu() {
         return
     fi
 
-    backup_unit
+    backup
+    backup_file="$(ls -t "${UNIT}.backup."* 2>/dev/null | head -n 1)"
 
-    replace_target_port "$value"
+    replace_target "$value"
 
-    restart_service || true
+    if restart_hcr; then
+        echo "✓ Target cambiado."
+    else
+        echo "❌ HCR no pudo iniciar. Restaurando..."
+        restore_backup "$backup_file"
+    fi
 
     pause
 }
 
-change_nofile_menu() {
-    local current
-    local value
+change_nofile() {
+    local current value backup_file
 
     current="$(get_nofile)"
 
@@ -454,258 +402,231 @@ change_nofile_menu() {
         return
     fi
 
-    backup_unit
+    backup
+    backup_file="$(ls -t "${UNIT}.backup."* 2>/dev/null | head -n 1)"
 
     replace_nofile "$value"
 
-    restart_service || true
+    if restart_hcr; then
+        echo "✓ LimitNOFILE cambiado."
+    else
+        echo "❌ HCR no pudo iniciar. Restaurando..."
+        restore_backup "$backup_file"
+    fi
 
     pause
 }
 
-show_status() {
+status_menu() {
     clear_screen
 
-    local status
-
-    if systemctl is-active --quiet "$SERVICE"; then
-        status="ACTIVO ✓"
-    else
-        status="INACTIVO ✗"
-    fi
-
     echo "════════════════════════════════════════════"
-    echo "              HCR CONFIGURACIÓN"
+    echo "             HCR - CONFIGURACIÓN"
     echo "════════════════════════════════════════════"
     echo
-    echo "Servicio:                 $status"
+
+    if systemctl is-active --quiet "$SERVICE"; then
+        echo "Servicio:                 ACTIVO ✓"
+    else
+        echo "Servicio:                 INACTIVO ✗"
+    fi
+
     echo
     echo "Puerto HCR:               $(get_port)"
-    echo "Puerto SSH/target:        $(get_target_port)"
+    echo "Puerto SSH/target:        $(get_target)"
     echo "Transport:                $(get_transport)"
     echo
+    echo "Max Connections:          $(get_connections)"
+    echo "Max Sessions:             $(get_sessions)"
+    echo "Max Sessions/IP:          $(get_sessions_ip)"
     echo "Max Download Frame:       $(get_frame)"
-    echo "Download Poll Timeout:    $(get_poll_timeout)"
-    echo
-    echo "Max Connections:          $(get_max_connections)"
-    echo "Max Sessions:             $(get_max_sessions)"
-    echo "Max Sessions/IP:          $(get_max_sessions_ip)"
-    echo
+    echo "Download Poll Timeout:    $(get_poll)"
+    echo "Session Stats Interval:   $(get_stats)"
     echo "LimitNOFILE:              $(get_nofile)"
+
     echo
     echo "════════════════════════════════════════════"
 
     pause
 }
 
-show_execstart() {
+logs_menu() {
     clear_screen
 
-    echo "════════════════════════════════════════════"
-    echo "                 EXECSTART"
-    echo "════════════════════════════════════════════"
+    echo "Últimas 50 líneas de HCR:"
     echo
 
-    get_execstart
-
-    echo
-    echo "════════════════════════════════════════════"
-
-    pause
-}
-
-restart_menu() {
-    echo
-
-    if restart_service; then
-        echo
-        echo "✓ HCR reiniciado correctamente."
-    fi
-
-    pause
-}
-
-start_stop_menu() {
-    if systemctl is-active --quiet "$SERVICE"; then
-        systemctl stop "$SERVICE"
-        echo
-        echo "✓ HCR detenido."
-    else
-        systemctl start "$SERVICE"
-
-        if systemctl is-active --quiet "$SERVICE"; then
-            echo
-            echo "✓ HCR iniciado."
-        else
-            echo
-            echo "❌ No pudo iniciar."
-        fi
-    fi
-
-    pause
-}
-
-uninstall_menu() {
-    clear_screen
-
-    echo "════════════════════════════════════════════"
-    echo "             DESINSTALAR HCR"
-    echo "════════════════════════════════════════════"
-    echo
-    echo "Esto detendrá y deshabilitará hcr-server."
-    echo
-    read -r -p "Escribe SI para confirmar: " answer
-
-    if [ "$answer" != "SI" ]; then
-        echo
-        echo "Cancelado."
-        pause
-        return
-    fi
-
-    systemctl disable --now "$SERVICE" 2>/dev/null || true
-
-    rm -f "$UNIT"
-
-    systemctl daemon-reload
-    systemctl reset-failed "$SERVICE" 2>/dev/null || true
-
-    echo
-    echo "✓ HCR desinstalado."
-    echo "El directorio del proyecto NO fue eliminado."
+    journalctl -u "$SERVICE" -n 50 --no-pager || true
 
     pause
 }
 
 main_menu() {
     while true; do
-
         clear_screen
 
         echo "════════════════════════════════════════════"
-        echo "           NETSYS MOD - HCR CUSTOM"
+        echo "          NETSYS MOD - HCR CUSTOM"
         echo "════════════════════════════════════════════"
         echo
-        echo " [1] PUERTO HCR:              $(get_port)"
-        echo " [2] PUERTO REDIRECCIÓN SSH:  $(get_target_port)"
-        echo " [3] MAX DOWNLOAD FRAME:      $(get_frame)"
-        echo " [4] DOWNLOAD POLL TIMEOUT:   $(get_poll_timeout)"
-        echo " [5] MAX CONNECTIONS:          $(get_max_connections)"
-        echo " [6] MAX SESSIONS:             $(get_max_sessions)"
-        echo " [7] MAX SESSIONS PER IP:      $(get_max_sessions_ip)"
-        echo " [8] LIMIT NOFILE:             $(get_nofile)"
-        echo " [9] MODO TRANSPORT:            $(get_transport)"
+        echo " [1] Puerto HCR:              $(get_port)"
+        echo " [2] Puerto SSH / Target:     $(get_target)"
+        echo " [3] Transport:               $(get_transport)"
         echo
-        echo " [10] ESTADO DEL SERVICIO"
-        echo " [11] VER EXECSTART"
-        echo " [12] REINICIAR HCR"
-        echo " [13] INICIAR / DETENER HCR"
-        echo " [14] DESINSTALAR HCR"
+        echo " [4] Max Download Frame:      $(get_frame)"
+        echo " [5] Download Poll Timeout:   $(get_poll)"
+        echo " [6] Max Connections:          $(get_connections)"
+        echo " [7] Max Sessions:             $(get_sessions)"
+        echo " [8] Max Sessions Per IP:      $(get_sessions_ip)"
+        echo " [9] Session Stats Interval:   $(get_stats)"
         echo
-        echo " [0] SALIR"
+        echo " [10] Limit NOFILE:             $(get_nofile)"
+        echo " [11] Estado"
+        echo " [12] Ver ExecStart"
+        echo " [13] Ver logs"
+        echo " [14] Reiniciar HCR"
+        echo " [15] Iniciar / Detener HCR"
+        echo " [16] Desinstalar HCR"
+        echo
+        echo " [0] Salir"
         echo
         echo "════════════════════════════════════════════"
 
         read -r -p "Ingresa una Opción: " option
 
         case "$option" in
-
             1)
-                change_port_menu
+                change_port
                 ;;
-
             2)
-                change_target_port_menu
+                change_target
                 ;;
-
             3)
-                change_number \
+                echo
+                echo "Transport se controla desde install.sh:"
+                echo "tls / plain / auto"
+                echo
+                echo "Para no romper certificados, esta opción no modifica"
+                echo "el servicio automáticamente."
+                pause
+                ;;
+            4)
+                change_option \
                     "Nuevo MAX DOWNLOAD FRAME" \
                     "--max-download-frame" \
                     "$(get_frame)" \
                     1 \
-                    16384
+                    1048576
                 ;;
-
-            4)
+            5)
                 change_timeout
                 ;;
-
-            5)
-                change_number \
+            6)
+                change_option \
                     "Nuevo MAX CONNECTIONS" \
                     "--max-connections" \
-                    "$(get_max_connections)" \
+                    "$(get_connections)" \
                     1 \
                     1048576
                 ;;
-
-            6)
-                change_number \
+            7)
+                change_option \
                     "Nuevo MAX SESSIONS" \
                     "--max-sessions" \
-                    "$(get_max_sessions)" \
+                    "$(get_sessions)" \
                     1 \
                     1048576
                 ;;
-
-            7)
-                change_number \
+            8)
+                change_option \
                     "Nuevo MAX SESSIONS PER IP" \
                     "--max-sessions-per-ip" \
-                    "$(get_max_sessions_ip)" \
+                    "$(get_sessions_ip)" \
                     0 \
                     1048576
                 ;;
-
-            8)
-                change_nofile_menu
-                ;;
-
             9)
+                change_option \
+                    "Nuevo SESSION STATS INTERVAL en segundos (0 = off)" \
+                    "--session-stats-interval" \
+                    "$(get_stats)" \
+                    0 \
+                    86400
+                ;;
+            10)
+                change_nofile
+                ;;
+            11)
+                status_menu
+                ;;
+            12)
+                clear_screen
+                echo "ExecStart actual:"
                 echo
-                echo "El transport se mantiene bajo control del install.sh."
-                echo "Para cambiar plain/tls/auto es mejor reinstalar el servicio"
-                echo "con --transport para conservar correctamente TLS."
+                execstart
                 pause
                 ;;
-
-            10)
-                show_status
-                ;;
-
-            11)
-                show_execstart
-                ;;
-
-            12)
-                restart_menu
-                ;;
-
             13)
-                start_stop_menu
+                logs_menu
                 ;;
-
             14)
-                uninstall_menu
+                if restart_hcr; then
+                    echo
+                    echo "✓ HCR reiniciado correctamente."
+                else
+                    echo
+                    echo "❌ HCR no pudo reiniciar."
+                fi
+                pause
                 ;;
+            15)
+                if systemctl is-active --quiet "$SERVICE"; then
+                    systemctl stop "$SERVICE"
+                    echo "✓ HCR detenido."
+                else
+                    systemctl start "$SERVICE"
 
+                    if systemctl is-active --quiet "$SERVICE"; then
+                        echo "✓ HCR iniciado."
+                    else
+                        echo "❌ HCR no pudo iniciar."
+                    fi
+                fi
+                pause
+                ;;
+            16)
+                clear_screen
+                echo "Esto detendrá y deshabilitará HCR."
+                echo "El repositorio no será eliminado."
+                echo
+                read -r -p "Escribe SI para confirmar: " answer
+
+                if [ "$answer" = "SI" ]; then
+                    systemctl disable --now "$SERVICE" 2>/dev/null || true
+                    rm -f "$UNIT"
+                    systemctl daemon-reload
+                    systemctl reset-failed "$SERVICE" 2>/dev/null || true
+                    echo "✓ HCR desinstalado."
+                else
+                    echo "Cancelado."
+                fi
+
+                pause
+                ;;
             0)
                 echo
                 echo "👋 Saliendo..."
                 exit 0
                 ;;
-
             *)
                 echo
                 echo "❌ Opción inválida."
                 sleep 1
                 ;;
-
         esac
     done
 }
 
 require_root
-check_service_file
+require_service
 main_menu
